@@ -1,0 +1,28 @@
+# Waylo gateway + DHL mock.
+#   docker compose up -d --build
+#   curl -X POST localhost:8080/request -H 'X-API-Key: local-dev-key' -H 'Content-Type: application/json' \
+#        -d '{"type":"track","trackingNumbers":["JJD000390007"]}'
+services:
+  dhl-mock:
+    build: { context: ., target: dhl-mock }
+    image: waylo-dhl-mock:local
+    restart: unless-stopped
+    environment:
+      DHL_MOCK_PORT: "9999"
+      # Lose 10% of datagrams in each direction and answer after 5-80 ms, so retries,
+      # timeouts and out-of-order answers actually happen.
+      DHL_MOCK_LOSS_RATE: "0.1"
+      DHL_MOCK_MIN_DELAY_MS: "5"
+      DHL_MOCK_MAX_DELAY_MS: "80"
+
+  gateway:
+    build: { context: ., target: gateway }
+    image: waylo-gateway:local
+    restart: unless-stopped
+    depends_on: [dhl-mock]
+    environment:
+      DHL_HOST: dhl-mock
+      DHL_PORT: "9999"
+      WAYLO_API_KEYS: local-dev-key
+    ports:
+      - "${WAYLO_PORT:-8080}:8080"

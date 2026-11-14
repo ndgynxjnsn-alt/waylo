@@ -1,0 +1,7 @@
+**/build/
+.gradle/
+.kotlin/
+.git/
+graf_zahl/
+observability/
+*.md

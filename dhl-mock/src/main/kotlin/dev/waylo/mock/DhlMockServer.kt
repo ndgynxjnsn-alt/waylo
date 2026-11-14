@@ -52,7 +52,7 @@ class DhlMockServer(
 
     fun start(): DhlMockServer = apply {
         receiver.start()
-        log.log(Level.INFO, "DHL mock listening on udp/{0} ({1})", port, config)
+        log.log(Level.INFO, "DHL mock listening on udp/{0} ({1})", port.toString(), config)
     }
 
     /** Forget all sessions, as if DHL had restarted. */
