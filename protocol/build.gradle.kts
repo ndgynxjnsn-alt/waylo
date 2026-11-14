@@ -15,28 +15,27 @@ dependencies {
     testImplementation(libs.kaitai.runtime)
 }
 
-val ksyDir = layout.projectDirectory.dir("src/main/kaitai")
 val kaitaiOut = layout.buildDirectory.dir("generated/kaitai")
 
 val generateKaitaiParser = tasks.register<JavaExec>("generateKaitaiParser") {
     description = "Compiles the .ksy protocol definition to a Java parser (test oracle)."
     group = "build"
+    val ksyFiles = layout.projectDirectory.dir("src/main/kaitai").asFileTree.matching { include("*.ksy") }
+    val outDir = kaitaiOut.get().asFile
     classpath = kaitaiCompiler
     mainClass.set("io.kaitai.struct.JavaMain")
-    inputs.dir(ksyDir)
-    outputs.dir(kaitaiOut)
-    val ksyFiles = ksyDir.asFileTree.matching { include("*.ksy") }
-    doFirst { kaitaiOut.get().asFile.deleteRecursively() }
-    argumentProviders.add(CommandLineArgumentProvider {
-        listOf(
-            "--target", "java",
-            "--java-package", "dev.waylo.protocol.kaitai",
-            "--outdir", kaitaiOut.get().asFile.absolutePath,
-            "--ksc-exceptions",
-        ) + ksyFiles.files.map { it.absolutePath }
-    })
+    inputs.files(ksyFiles)
+    outputs.dir(outDir)
+    doFirst { outDir.deleteRecursively() }
+    args(
+        "--target", "java",
+        "--java-package", "dev.waylo.protocol.kaitai",
+        "--outdir", outDir.absolutePath,
+        "--ksc-exceptions",
+    )
+    args(ksyFiles.files.map { it.absolutePath })
 }
 
 sourceSets.test {
-    java.srcDir(generateKaitaiParser.map { kaitaiOut.get() })
+    java.srcDir(generateKaitaiParser)
 }
