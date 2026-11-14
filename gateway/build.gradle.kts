@@ -15,10 +15,13 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("tools.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    // API only: a no-op unless the OpenTelemetry javaagent is attached, which bridges it.
+    implementation("io.opentelemetry:opentelemetry-api")
 
     testImplementation(platform(libs.spring.boot.bom))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(project(":dhl-mock"))
+    testImplementation("io.opentelemetry:opentelemetry-sdk-testing")
 }
 
 tasks.bootJar {

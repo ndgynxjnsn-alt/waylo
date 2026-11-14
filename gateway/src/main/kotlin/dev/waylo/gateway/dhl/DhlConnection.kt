@@ -39,6 +39,7 @@ import kotlin.random.Random
  */
 class DhlConnection(
     private val properties: DhlProperties,
+    private val telemetry: DhlTelemetry = DhlTelemetry(properties),
     private val clock: Clock = Clock.systemUTC(),
 ) : AutoCloseable {
 
@@ -59,6 +60,10 @@ class DhlConnection(
     /** Number of exchanges currently waiting for an answer. */
     val inFlight: Int get() = pending.size
 
+    init {
+        telemetry.registerInFlightGauge { pending.size }
+    }
+
     /**
      * Sends [body] and blocks until the matching answer of type [expect] arrives, retransmitting on
      * timeout. Safe to call from many threads concurrently (intended for virtual threads).
@@ -66,19 +71,23 @@ class DhlConnection(
     fun exchange(body: Body, expect: MessageType, priority: Boolean = false): Result {
         val id = MessageId(nextId.getAndIncrement().toUInt())
         val exchange = Pending(expect)
+        val span = telemetry.start(id, body, priority)
         pending[id] = exchange
         try {
             for (attempt in 1..properties.attempts) {
+                if (attempt > 1) span.retransmitting(attempt)
                 val flags = Flags(retransmission = attempt > 1, priority = priority)
                 send(Message(Header(id, clock.instant(), flags), body))
                 try {
                     val answer = exchange.answer.get(properties.timeout.toNanos(), TimeUnit.NANOSECONDS)
+                    span.answered(answer, attempt)
                     return Result.Answered(answer, attempt)
                 } catch (_: TimeoutException) {
                     log.debug("no {} for #{} within {} (attempt {}/{})", expect, id, properties.timeout, attempt, properties.attempts)
                 }
             }
             log.warn("{} #{} unanswered after {} attempts", body.type, id, properties.attempts)
+            span.timedOut(properties.attempts)
             return Result.TimedOut(properties.attempts)
         } finally {
             pending.remove(id)
@@ -119,15 +128,25 @@ class DhlConnection(
     private fun dispatch(datagram: ByteArray) {
         val message = when (val result = MessageCodec.decode(datagram)) {
             is DecodeResult.Success -> result.message
-            is DecodeResult.Failure -> return log.warn("dropping undecodable datagram: {}", result.error)
+            is DecodeResult.Failure -> {
+                telemetry.dropped("undecodable")
+                return log.warn("dropping undecodable datagram: {}", result.error)
+            }
         }
-        val body = message.body as? Answer
-            ?: return log.warn("dropping unsolicited {} #{}", message.type, message.header.messageId)
+        val body = message.body as? Answer ?: run {
+            telemetry.dropped("unsolicited")
+            return log.warn("dropping unsolicited {} #{}", message.type, message.header.messageId)
+        }
         val exchange = pending[body.answerFor]
         when {
-            exchange == null -> log.debug("late or duplicate answer for #{} dropped", body.answerFor)
-            exchange.expected != message.type ->
+            exchange == null -> {
+                telemetry.dropped("late_or_duplicate")
+                log.debug("late or duplicate answer for #{} dropped", body.answerFor)
+            }
+            exchange.expected != message.type -> {
+                telemetry.dropped("type_mismatch")
                 log.warn("answer for #{} has type {}, expected {}; dropped", body.answerFor, message.type, exchange.expected)
+            }
             else -> exchange.answer.complete(message)
         }
     }
