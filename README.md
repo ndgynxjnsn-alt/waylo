@@ -8,7 +8,7 @@ DHL does not exist, so the project ships a mock of it. The binary protocol (WPP 
 for the demo and specified in [Kaitai Struct](https://kaitai.io/):
 [`waylo_message.ksy`](protocol/src/main/kaitai/waylo_message.ksy).
 
-Kotlin 2.4 · Spring Boot 4.1 · Java 25 · Gradle 9.9
+Kotlin 2.4 · Spring Boot 4.1 · Java 25 · Gradle 9.9 · OpenTelemetry javaagent 2.33 · Pyroscope OTel extension 2.1
 
 ## Architecture
 
@@ -339,6 +339,70 @@ or locally:
 ./gradlew :gateway:bootRun            # terminal 2
 ```
 
+## Observability (OpenTelemetry + Pyroscope)
+
+```bash
+docker compose -f docker-compose.yml -f compose.observability.yml up -d --build
+# Grafana: http://localhost:3000  ->  dashboard "Waylo — HTTP → UDP gateway"
+# (WAYLO_PORT / GRAFANA_PORT override the published ports)
+```
+
+The gateway image carries two jars, attached only by [`compose.observability.yml`](compose.observability.yml)
+via `JAVA_TOOL_OPTIONS`:
+
+* the **OpenTelemetry Java agent** (zero-code: HTTP server spans, JVM/HTTP metrics, logs with
+  `trace_id`, all pushed as OTLP), and
+* the **Pyroscope OTel extension** (`-Dotel.javaagent.extensions`). It bundles the Pyroscope
+  profiler (async-profiler), starts it (`OTEL_PYROSCOPE_START_PROFILING=true`) and labels profiles
+  with the active span - no separate Pyroscope javaagent.
+
+The Grafana stack is adapted from the `graf_zahl` showcase ([`observability/`](observability)):
+Alloy is the single entry point and fans out to Tempo, Mimir, Loki and Pyroscope. k6 generates
+steady demo traffic.
+
+```mermaid
+flowchart LR
+    k6([k6 load]) --> gw
+    subgraph gw [waylo-gateway JVM]
+        app[Spring Boot app]
+        otel[OTel javaagent]
+        pyro[Pyroscope OTel extension<br/>+ bundled profiler]
+    end
+    gw -- "UDP (CLIENT span, peer.service=dhl)" --> dhl[dhl-mock<br/><i>external, no telemetry</i>]
+    otel -- "OTLP traces · metrics · logs" --> alloy[Grafana Alloy]
+    pyro -- profiles --> alloy
+    alloy --> tempo[(Tempo)] & mimir[(Mimir)] & loki[(Loki)] & pyroscope[(Pyroscope)]
+    tempo -- "span metrics,<br/>service graph" --> mimir
+    grafana[Grafana] --> tempo & mimir & loki & pyroscope
+```
+
+**DHL as a client dependency.** DHL is external and never participates in our telemetry, so it is
+modelled like a database: every exchange is a `CLIENT` span `DHL <operation>`
+([`DhlTelemetry`](gateway/src/main/kotlin/dev/waylo/gateway/dhl/DhlTelemetry.kt)) with
+`peer.service=dhl`, `server.address/port`, `network.transport=udp`, `dhl.message.id`,
+`dhl.attempts` and a `retransmission` event per retry. Timeouts set `error.type=timeout` and the
+span status to error. Tempo's service graph therefore draws `waylo-gateway → dhl` as a virtual
+node. The code uses only the OpenTelemetry API (a no-op without the agent).
+
+Custom metrics: `dhl.client.exchange.duration` (histogram by operation and outcome),
+`dhl.client.retransmissions`, `dhl.client.in_flight`, `dhl.client.dropped` (late, duplicate or
+undecodable answers).
+
+```mermaid
+sequenceDiagram
+    participant C as client
+    participant G as waylo-gateway
+    participant D as DHL
+    Note over G: span POST /request (SERVER)
+    C->>G: POST /request
+    Note over G: span DHL track (CLIENT, peer.service=dhl)
+    G->>D: request #7
+    G->>D: request #7 (event: retransmission)
+    D-->>G: response for #7
+    Note over G: dhl.attempts=2, dhl.response.status=ok
+    G-->>C: 200
+```
+
 ## Tests
 
 ```bash
@@ -355,3 +419,4 @@ or locally:
 * **Gateway integration** against the in-process mock over real UDP: happy paths, 401, 400 with all
   errors, 504 after exactly 3 datagrams with the same id and retransmission flags, 100 concurrent
   requests with out-of-order answers, session renewal; requests wait for the handshake.
+* **Telemetry**: the DHL CLIENT spans are checked with the OpenTelemetry SDK's in-memory exporter.

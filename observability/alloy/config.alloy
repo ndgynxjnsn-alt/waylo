@@ -1,0 +1,74 @@
+// Grafana Alloy: single OTLP entrypoint that fans telemetry out to the
+// three backends. The gateway pushes OTLP here (gRPC 4317 / HTTP 4318).
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    metrics = [otelcol.exporter.otlphttp.mimir.input]
+    logs    = [otelcol.exporter.otlphttp.loki.input]
+    traces  = [otelcol.exporter.otlphttp.tempo.input]
+  }
+}
+
+// Traces -> Tempo (native OTLP ingest on 4318)
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = "http://tempo:4318"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// Logs -> Loki (native OTLP endpoint)
+otelcol.exporter.otlphttp "loki" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// Metrics (incl. exemplars) -> Mimir (native OTLP endpoint)
+otelcol.exporter.otlphttp "mimir" {
+  client {
+    endpoint = "http://mimir:9009/otlp"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Profiles: the Pyroscope OTel extension pushes here (Alloy) instead of straight to
+// Pyroscope. receive_http accepts the Pyroscope ingest protocol and forwards
+// to pyroscope.write, which relays to Pyroscope.
+// ---------------------------------------------------------------------------
+pyroscope.receive_http "default" {
+  http {
+    listen_address = "0.0.0.0"
+    listen_port    = 9999
+  }
+  forward_to = [pyroscope.write.default.receiver]
+}
+
+pyroscope.write "default" {
+  endpoint {
+    url = "http://pyroscope:4040"
+  }
+}

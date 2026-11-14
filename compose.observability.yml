@@ -1,0 +1,107 @@
+# Milestone 2: the gateway with OpenTelemetry + Pyroscope, pushing into a Grafana stack.
+#
+#   docker compose -f docker-compose.yml -f compose.observability.yml up -d --build
+#   open http://localhost:3000   (GRAFANA_PORT to override)
+#
+#   gateway --OTLP (traces, metrics, logs)--> Alloy --> Tempo / Mimir / Loki
+#   gateway --profiles (Pyroscope ingest)----> Alloy --> Pyroscope
+#   DHL mock: external, never part of our telemetry - it only appears as the
+#   target of the gateway's CLIENT spans (peer.service=dhl).
+#
+# Adapted from the graf_zahl showcase; all backends single tenant, nothing scraped.
+
+services:
+  gateway:
+    depends_on: [dhl-mock, alloy]
+    environment:
+      # Only the OTel agent plus the Pyroscope extension (which brings the profiler).
+      JAVA_TOOL_OPTIONS: >-
+        -javaagent:/otel/opentelemetry-javaagent.jar
+        -Dotel.javaagent.extensions=/otel/pyroscope-otel.jar
+        --enable-native-access=ALL-UNNAMED
+        --sun-misc-unsafe-memory-access=allow
+      # OTel agent: otlp + http/protobuf are defaults; service.name comes from
+      # spring.application.name (waylo-gateway).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=demo
+      # Pyroscope extension: start the bundled profiler, label profiles with spans.
+      OTEL_PYROSCOPE_START_PROFILING: "true"
+      OTEL_PYROSCOPE_ADD_SPAN_NAME: "true"
+      PYROSCOPE_APPLICATION_NAME: waylo-gateway
+      PYROSCOPE_SERVER_ADDRESS: http://alloy:9999
+      PYROSCOPE_LABELS: environment=demo
+      PYROSCOPE_FORMAT: jfr
+      PYROSCOPE_PROFILER_EVENT: itimer
+      PYROSCOPE_PROFILER_ALLOC: 512k
+      PYROSCOPE_PROFILER_LOCK: 10ms
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    restart: unless-stopped
+    command: [run, --server.http.listen-addr=0.0.0.0:12345, /etc/alloy/config.alloy]
+    volumes: [./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro]
+    depends_on: [loki, tempo, mimir, pyroscope]
+
+  loki:
+    image: grafana/loki:3.7.9
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+
+  tempo:
+    image: grafana/tempo:3.0.2
+    restart: unless-stopped
+    command: -config.file=/etc/tempo/tempo-config.yml
+    volumes:
+      - ./observability/tempo/tempo-config.yml:/etc/tempo/tempo-config.yml:ro
+      - tempo-data:/var/tempo
+
+  mimir:
+    image: grafana/mimir:3.2.3
+    restart: unless-stopped
+    command: [-config.file=/etc/mimir/mimir-config.yml, -ingester.ring.instance-addr=127.0.0.1]
+    volumes:
+      - ./observability/mimir/mimir-config.yml:/etc/mimir/mimir-config.yml:ro
+      - mimir-data:/data
+
+  pyroscope:
+    image: grafana/pyroscope:2.1.1
+    restart: unless-stopped
+    volumes: [pyroscope-data:/data]
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_FEATURE_TOGGLES_ENABLE: traceToProfiles
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on: [loki, tempo, mimir, pyroscope]
+
+  # Steady demo traffic: tracking, quotes, a few invalid requests.
+  k6:
+    image: grafana/k6:2.1.0
+    restart: unless-stopped
+    command: run /scripts/script.js
+    environment:
+      GATEWAY_URL: http://gateway:8080
+      API_KEY: local-dev-key
+    volumes: [./observability/k6/script.js:/scripts/script.js:ro]
+    depends_on: [gateway]
+
+volumes:
+  loki-data:
+  tempo-data:
+  mimir-data:
+  pyroscope-data:
+  grafana-data:

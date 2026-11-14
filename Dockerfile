@@ -26,6 +26,17 @@ ENTRYPOINT ["/app/bin/dhl-mock"]
 # ---- gateway -------------------------------------------------------------------------------
 FROM eclipse-temurin:25-jre AS gateway
 WORKDIR /app
+
+# Observability (Milestone 2), dormant unless attached via JAVA_TOOL_OPTIONS
+# (see compose.observability.yml):
+#  * OpenTelemetry Java agent - zero-code traces, metrics and logs over OTLP
+#  * Pyroscope OTel extension - bundles the Pyroscope profiler (async-profiler) and
+#    labels profiles with the active span; no separate Pyroscope javaagent needed.
+ARG OTEL_AGENT_VERSION=2.33.1
+ARG PYROSCOPE_OTEL_VERSION=2.1.4
+ADD --chmod=644 https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar /otel/opentelemetry-javaagent.jar
+ADD --chmod=644 https://github.com/grafana/otel-profiling-java/releases/download/v${PYROSCOPE_OTEL_VERSION}/pyroscope-otel-javaagent-extension.jar /otel/pyroscope-otel.jar
+RUN chmod 755 /otel
 COPY --from=build /src/gateway/build/libs/waylo-gateway.jar /app/app.jar
 EXPOSE 8080
 USER 10001
