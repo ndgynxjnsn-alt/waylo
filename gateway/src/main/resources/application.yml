@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: waylo-gateway
+  threads:
+    virtual:
+      enabled: true # every HTTP request blocks cheaply while waiting for its UDP answer
+  mvc:
+    problemdetails:
+      enabled: true
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+waylo:
+  security:
+    # Comma separated list of accepted values for the X-API-Key header.
+    api-keys: ${WAYLO_API_KEYS:local-dev-key}
+  dhl:
+    host: ${DHL_HOST:localhost}
+    port: ${DHL_PORT:9999}
+    # How long to wait for an answer to a single datagram before retransmitting it.
+    timeout: 500ms
+    # Retransmissions after the first attempt. 2 => at most 3 datagrams per request.
+    retries: 2
+    handshake:
+      client-name: waylo-gateway/0.1.0
+      # Pause between two failed handshake rounds (each round itself uses timeout/retries).
+      retry-backoff: 1s
+      # How long an HTTP request waits for the initial handshake before giving up with 503.
+      max-wait: 3s

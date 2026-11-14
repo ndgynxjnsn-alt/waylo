@@ -45,7 +45,7 @@ class DhlMockServer(
     private val nextId = AtomicInteger(random.nextInt())
     private val receiver = Thread.ofVirtual().name("dhl-mock-receiver").unstarted(::receiveLoop)
 
-    /** Every successfully decoded datagram that was not "lost" on the way in. For tests. */
+    /** Every successfully decoded datagram that arrived, including ones then "lost". For tests. */
     val received: MutableList<Message> = CopyOnWriteArrayList()
 
     val port: Int get() = socket.localPort
@@ -86,12 +86,12 @@ class DhlMockServer(
                 return
             }
         }
+        received += message
         val cfg = config
         if (lost(cfg)) {
             log.log(Level.DEBUG, "simulated loss of incoming {0} #{1}", message.type, message.header.messageId)
             return
         }
-        received += message
 
         val answer = answer(message) ?: return
         if (!message.header.flags.priority) simulateLatency(cfg)
