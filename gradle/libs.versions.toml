@@ -1,0 +1,16 @@
+[versions]
+kotlin = "2.4.21"
+spring-boot = "4.1.2"
+kaitai = "0.11"
+junit = "6.1.3"
+
+[libraries]
+kaitai-runtime = { module = "io.kaitai:kaitai-struct-runtime", version.ref = "kaitai" }
+kaitai-compiler = { module = "io.kaitai:kaitai-struct-compiler_2.13", version.ref = "kaitai" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

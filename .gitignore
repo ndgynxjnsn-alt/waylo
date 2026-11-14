@@ -1,0 +1,7 @@
+graf_zahl/
+.gradle/
+build/
+.kotlin/
+.idea/
+*.iml
+out/
