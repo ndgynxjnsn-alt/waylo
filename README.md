@@ -18,7 +18,7 @@ flowchart LR
 
     subgraph gw [gateway - Spring Boot]
         direction LR
-        sec[ApiKeyFilter<br/>X-API-Key]
+        sec[Spring Security<br/>X-API-Key or OAuth2 JWT<br/>CORS]
         ctrl[RequestController<br/>POST /request]
         parser[RequestParser<br/>DTO → domain]
         port{{ParcelGateway<br/>port}}
@@ -267,7 +267,34 @@ stateDiagram-v2
 
 ## HTTP API
 
-`POST /request` with header `X-API-Key`. The body's `type` selects the operation.
+`POST /request`, authenticated by **either** header (the body's `type` selects the operation):
+
+| Client              | Header                          | Validation                                              |
+|---------------------|---------------------------------|---------------------------------------------------------|
+| machines            | `X-API-Key: <key>`              | constant-time match against `waylo.security.api-keys`   |
+| frontend (Keycloak) | `Authorization: Bearer <JWT>`   | OAuth2 resource server: signature (realm JWKS), issuer, expiry, audience |
+
+OAuth2 is active only when `spring.security.oauth2.resourceserver.jwt.*` is configured. The
+frontend is a public Keycloak client (Authorization Code + PKCE); the gateway only validates tokens.
+For browsers, CORS is configured with `waylo.cors.*` (Spring Boot has CORS properties only for
+Actuator). The default allowed headers include `traceparent`, `tracestate` and `baggage`, so a
+traced frontend continues its trace in the gateway (the OTel agent picks up W3C trace context).
+Commented examples are in [`application.yml`](gateway/src/main/resources/application.yml).
+
+```mermaid
+sequenceDiagram
+    participant B as Browser (frontend)
+    participant K as Keycloak
+    participant G as Waylo gateway
+    B->>K: Authorization Code + PKCE
+    K-->>B: access token (aud: waylo-api)
+    B->>G: OPTIONS /request (Origin, Access-Control-Request-Headers: authorization, traceparent)
+    G-->>B: 200 Access-Control-Allow-Origin / -Headers
+    B->>G: POST /request  Authorization: Bearer … · traceparent: 00-…
+    G->>K: JWKS (cached)
+    G-->>B: 200 (span joins the browser's trace)
+```
+
 
 ```bash
 curl -X POST localhost:8080/request -H 'X-API-Key: local-dev-key' -H 'Content-Type: application/json' \
@@ -303,7 +330,7 @@ Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details:
 | Status | When                                                                      |
 |--------|---------------------------------------------------------------------------|
 | 400    | malformed JSON, unknown `type`, or parse errors (`errors: [{field, message}]`) |
-| 401    | missing or unknown `X-API-Key`                                            |
+| 401    | no valid `X-API-Key` and no valid bearer token (`WWW-Authenticate: Bearer` when OAuth2 is on) |
 | 502    | DHL answered with an error or an answer that does not fit the request     |
 | 503    | no DHL session yet (handshake pending), with `Retry-After`                |
 | 504    | no answer after 1 + `retries` attempts                                    |
@@ -317,6 +344,10 @@ Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details:
 | Property                             | Env               | Default               |
 |--------------------------------------|-------------------|-----------------------|
 | `waylo.security.api-keys`            | `WAYLO_API_KEYS`  | `local-dev-key`       |
+| `spring.security.oauth2.resourceserver.jwt.issuer-uri` |  | unset (OAuth2 off)    |
+| `spring.security.oauth2.resourceserver.jwt.audiences`  |  | unset                 |
+| `waylo.cors.allowed-origins`         |                   | empty (CORS off)      |
+| `waylo.cors.allowed-headers`         |                   | `Content-Type, Authorization, X-API-Key, traceparent, tracestate, baggage` |
 | `waylo.dhl.host` / `port`            | `DHL_HOST` / `DHL_PORT` | `localhost` / `9999` |
 | `waylo.dhl.timeout`                  |                   | `500ms` per attempt   |
 | `waylo.dhl.retries`                  |                   | `2` (3 attempts)      |
@@ -419,4 +450,7 @@ sequenceDiagram
 * **Gateway integration** against the in-process mock over real UDP: happy paths, 401, 400 with all
   errors, 504 after exactly 3 datagrams with the same id and retransmission flags, 100 concurrent
   requests with out-of-order answers, session renewal; requests wait for the handshake.
+* **Security**: real RS256 tokens against a local Keycloak stand-in (OIDC discovery + JWKS), so
+  the production `issuer-uri` path is exercised; wrong audience, foreign issuer, expired and
+  unsigned tokens are rejected; API keys keep working; CORS preflights with trace headers.
 * **Telemetry**: the DHL CLIENT spans are checked with the OpenTelemetry SDK's in-memory exporter.

@@ -7,6 +7,25 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  # ---- OAuth2 / Keycloak (frontend) -------------------------------------------------------
+  # Enables "Authorization: Bearer <JWT>" on POST /request in addition to X-API-Key.
+  # Spring validates signature (keys from the issuer's JWKS), issuer, expiry and audience.
+  # security:
+  #   oauth2:
+  #     resourceserver:
+  #       jwt:
+  #         issuer-uri: https://keycloak.example.com/realms/waylo
+  #         # optional: skips OIDC discovery at startup (keys are fetched lazily)
+  #         jwk-set-uri: https://keycloak.example.com/realms/waylo/protocol/openid-connect/certs
+  #         # The token's "aud" claim must contain one of these. Keycloak only adds the API to
+  #         # "aud" with an "Audience" protocol mapper on the frontend client (or its client scope).
+  #         audiences:
+  #           - waylo-api
+
+  # The frontend itself is the OAuth2 client (public client, Authorization Code + PKCE), e.g.
+  # in Keycloak: client "waylo-frontend", Client authentication OFF, Standard flow ON,
+  # Valid redirect URIs https://app.example.com/*, Web origins https://app.example.com.
+  # The gateway does not need client credentials; it only validates the tokens.
 
 server:
   port: 8080
@@ -26,6 +45,17 @@ waylo:
   security:
     # Comma separated list of accepted values for the X-API-Key header.
     api-keys: ${WAYLO_API_KEYS:local-dev-key}
+  # ---- CORS for browser frontends (disabled while allowed-origins is empty) -------------------
+  # cors:
+  #   allowed-origins:
+  #     - https://app.example.com
+  #     - http://localhost:5173
+  #   allowed-methods: [POST, OPTIONS]
+  #   # defaults shown; traceparent/tracestate/baggage let a traced frontend continue its trace here
+  #   allowed-headers: [Content-Type, Authorization, X-API-Key, traceparent, tracestate, baggage]
+  #   exposed-headers: [Retry-After, WWW-Authenticate]
+  #   allow-credentials: false   # bearer tokens travel in a header, no cookies needed
+  #   max-age: 30m
   dhl:
     host: ${DHL_HOST:localhost}
     port: ${DHL_PORT:9999}
