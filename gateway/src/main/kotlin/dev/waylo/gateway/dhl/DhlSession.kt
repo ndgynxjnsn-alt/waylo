@@ -5,7 +5,6 @@ import dev.waylo.protocol.HandshakeAck
 import dev.waylo.protocol.HandshakeStatus
 import dev.waylo.protocol.MessageType
 import dev.waylo.protocol.SessionId
-import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -13,6 +12,8 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.random.Random
 import kotlin.random.nextUInt
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 /**
  * Owns the DHL session. The first thing that happens on a connection is the handshake; until it
@@ -25,7 +26,7 @@ class DhlSession(
     private val properties: DhlProperties,
 ) : AutoCloseable {
 
-    private val log = LoggerFactory.getLogger(javaClass)
+    private val log: Logger = LoggerFactory.getLogger(javaClass)
     private val current = AtomicReference(CompletableFuture<SessionId>())
     @Volatile private var closed = false
 

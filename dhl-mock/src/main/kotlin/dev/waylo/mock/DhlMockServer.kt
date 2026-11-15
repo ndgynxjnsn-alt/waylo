@@ -4,9 +4,9 @@ import dev.waylo.protocol.Answer
 import dev.waylo.protocol.DecodeResult
 import dev.waylo.protocol.Flags
 import dev.waylo.protocol.Handshake
+import dev.waylo.protocol.HandshakeAck
 import dev.waylo.protocol.HandshakeStatus
 import dev.waylo.protocol.Header
-import dev.waylo.protocol.HandshakeAck
 import dev.waylo.protocol.Message
 import dev.waylo.protocol.MessageCodec
 import dev.waylo.protocol.MessageId
@@ -39,11 +39,11 @@ class DhlMockServer(
     private val random: Random = Random.Default,
 ) : AutoCloseable {
 
-    private val log = System.getLogger(DhlMockServer::class.java.name)
+    private val log: System.Logger = System.getLogger(DhlMockServer::class.java.name)
     private val socket = DatagramSocket(InetSocketAddress(config.port))
-    private val sessions = ConcurrentHashMap.newKeySet<SessionId>()
+    private val sessions: MutableSet<SessionId> = ConcurrentHashMap.newKeySet()
     private val nextId = AtomicInteger(random.nextInt())
-    private val receiver = Thread.ofVirtual().name("dhl-mock-receiver").unstarted(::receiveLoop)
+    private val receiver: Thread = Thread.ofVirtual().name("dhl-mock-receiver").unstarted(::receiveLoop)
 
     /** Every successfully decoded datagram that arrived, including ones then "lost". For tests. */
     val received: MutableList<Message> = CopyOnWriteArrayList()

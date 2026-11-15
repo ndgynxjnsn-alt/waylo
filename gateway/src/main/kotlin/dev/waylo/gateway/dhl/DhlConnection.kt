@@ -9,7 +9,6 @@ import dev.waylo.protocol.Message
 import dev.waylo.protocol.MessageCodec
 import dev.waylo.protocol.MessageId
 import dev.waylo.protocol.MessageType
-import org.slf4j.LoggerFactory
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.PortUnreachableException
@@ -25,6 +24,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.random.Random
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 /**
  * Request/answer exchanges over UDP with the DHL gateway.
@@ -50,12 +51,12 @@ class DhlConnection(
 
     private class Pending(val expected: MessageType, val answer: CompletableFuture<Message> = CompletableFuture())
 
-    private val log = LoggerFactory.getLogger(javaClass)
+    private val log: Logger = LoggerFactory.getLogger(javaClass)
     private val remote = InetSocketAddress(properties.host, properties.port)
     private val channel: DatagramChannel = DatagramChannel.open().bind(null).connect(remote)
     private val pending = ConcurrentHashMap<MessageId, Pending>()
     private val nextId = AtomicInteger(Random.nextInt())
-    private val receiver = Thread.ofPlatform().daemon().name("dhl-receiver").start(::receiveLoop)
+    private val receiver: Thread = Thread.ofPlatform().daemon().name("dhl-receiver").start(::receiveLoop)
 
     /** Number of exchanges currently waiting for an answer. */
     val inFlight: Int get() = pending.size

@@ -10,12 +10,17 @@ import dev.waylo.protocol.Response
 import dev.waylo.protocol.ResponseStatus
 import io.opentelemetry.api.GlobalOpenTelemetry
 import io.opentelemetry.api.OpenTelemetry
+import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.AttributeKey.longKey
 import io.opentelemetry.api.common.AttributeKey.stringKey
 import io.opentelemetry.api.common.Attributes
+import io.opentelemetry.api.metrics.DoubleHistogram
+import io.opentelemetry.api.metrics.LongCounter
+import io.opentelemetry.api.metrics.Meter
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanKind
 import io.opentelemetry.api.trace.StatusCode
+import io.opentelemetry.api.trace.Tracer
 
 /**
  * Traces and metrics for the DHL connection, via the OpenTelemetry API (bridged by the javaagent,
@@ -29,14 +34,14 @@ class DhlTelemetry(
     private val properties: DhlProperties,
     openTelemetry: OpenTelemetry = GlobalOpenTelemetry.get(),
 ) {
-    private val tracer = openTelemetry.getTracer(SCOPE)
-    private val meter = openTelemetry.getMeter(SCOPE)
+    private val tracer: Tracer = openTelemetry.getTracer(SCOPE)
+    private val meter: Meter = openTelemetry.getMeter(SCOPE)
 
-    private val duration = meter.histogramBuilder("dhl.client.exchange.duration")
+    private val duration: DoubleHistogram = meter.histogramBuilder("dhl.client.exchange.duration")
         .setUnit("s").setDescription("Time from first send until answer or final timeout").build()
-    private val retransmissions = meter.counterBuilder("dhl.client.retransmissions")
+    private val retransmissions: LongCounter = meter.counterBuilder("dhl.client.retransmissions")
         .setDescription("Datagrams sent again because no answer arrived in time").build()
-    private val dropped = meter.counterBuilder("dhl.client.dropped")
+    private val dropped: LongCounter = meter.counterBuilder("dhl.client.dropped")
         .setDescription("Incoming datagrams that could not be matched to an in-flight exchange").build()
 
     fun registerInFlightGauge(inFlight: () -> Int) {
@@ -115,20 +120,20 @@ class DhlTelemetry(
 
     private companion object {
         const val SCOPE = "dev.waylo.gateway.dhl"
-        val PEER_SERVICE = stringKey("peer.service")
-        val SERVER_ADDRESS = stringKey("server.address")
-        val SERVER_PORT = longKey("server.port")
-        val NETWORK_TRANSPORT = stringKey("network.transport")
-        val NETWORK_PROTOCOL = stringKey("network.protocol.name")
-        val ERROR_TYPE = stringKey("error.type")
-        val OPERATION = stringKey("dhl.operation")
-        val MESSAGE_ID = longKey("dhl.message.id")
-        val MESSAGE_TYPE = stringKey("dhl.message.type")
-        val PRIORITY = stringKey("dhl.priority")
-        val ATTEMPTS = longKey("dhl.attempts")
-        val ATTEMPT = longKey("dhl.attempt")
-        val RESPONSE_STATUS = stringKey("dhl.response.status")
-        val OUTCOME = stringKey("dhl.outcome")
-        val REASON = stringKey("reason")
+        val PEER_SERVICE: AttributeKey<String> = stringKey("peer.service")
+        val SERVER_ADDRESS: AttributeKey<String> = stringKey("server.address")
+        val SERVER_PORT: AttributeKey<Long> = longKey("server.port")
+        val NETWORK_TRANSPORT: AttributeKey<String> = stringKey("network.transport")
+        val NETWORK_PROTOCOL: AttributeKey<String> = stringKey("network.protocol.name")
+        val ERROR_TYPE: AttributeKey<String> = stringKey("error.type")
+        val OPERATION: AttributeKey<String> = stringKey("dhl.operation")
+        val MESSAGE_ID: AttributeKey<Long> = longKey("dhl.message.id")
+        val MESSAGE_TYPE: AttributeKey<String> = stringKey("dhl.message.type")
+        val PRIORITY: AttributeKey<String> = stringKey("dhl.priority")
+        val ATTEMPTS: AttributeKey<Long> = longKey("dhl.attempts")
+        val ATTEMPT: AttributeKey<Long> = longKey("dhl.attempt")
+        val RESPONSE_STATUS: AttributeKey<String> = stringKey("dhl.response.status")
+        val OUTCOME: AttributeKey<String> = stringKey("dhl.outcome")
+        val REASON: AttributeKey<String> = stringKey("reason")
     }
 }

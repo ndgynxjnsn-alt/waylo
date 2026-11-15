@@ -7,6 +7,7 @@ import dev.waylo.gateway.domain.Parsed
 import dev.waylo.protocol.MessageType
 import dev.waylo.protocol.Response
 import dev.waylo.protocol.ResponseStatus
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 /** [ParcelGateway] backed by the DHL UDP protocol. */
@@ -16,7 +17,7 @@ class DhlGateway(
     private val properties: DhlProperties,
 ) : ParcelGateway {
 
-    private val log = LoggerFactory.getLogger(javaClass)
+    private val log: Logger = LoggerFactory.getLogger(javaClass)
 
     override fun execute(query: ParcelQuery): GatewayOutcome = execute(query, sessionRenewals = 1)
 
