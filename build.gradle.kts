@@ -24,7 +24,10 @@ subprojects {
         }
         dependencies {
             "testImplementation"(platform(rootProject.libs.junit.bom))
-            "testImplementation"(kotlin("test"))
+            "testImplementation"(kotlin("test-junit5"))
+            // Explicit (not only transitive via kotlin-test) so IDE runners detect JUnit Jupiter
+            // and use the JUnit 5/6 launcher instead of falling back to JUnit 3.
+            "testImplementation"("org.junit.jupiter:junit-jupiter")
             "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
         }
         tasks.withType<Test>().configureEach {

@@ -1,6 +1,6 @@
 package dev.waylo.protocol
 
-import kotlin.test.Test
+import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 

@@ -19,7 +19,7 @@ import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.time.Instant
 import kotlin.test.AfterTest
-import kotlin.test.Test
+import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue

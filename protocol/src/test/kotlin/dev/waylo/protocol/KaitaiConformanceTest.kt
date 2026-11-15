@@ -5,7 +5,7 @@ import io.kaitai.struct.ByteBufferKaitaiStream
 import io.kaitai.struct.KaitaiStream
 import java.time.Instant
 import java.util.zip.CRC32
-import kotlin.test.Test
+import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 

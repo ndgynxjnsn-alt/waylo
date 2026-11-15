@@ -4,7 +4,7 @@ import dev.waylo.gateway.domain.FieldError
 import dev.waylo.gateway.domain.Parsed
 import dev.waylo.gateway.domain.QuoteShipment
 import dev.waylo.gateway.domain.TrackParcels
-import kotlin.test.Test
+import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 

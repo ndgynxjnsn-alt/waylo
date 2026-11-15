@@ -12,7 +12,7 @@ import dev.waylo.protocol.Request
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import kotlin.test.AfterTest
-import kotlin.test.Test
+import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
