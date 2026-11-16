@@ -19,8 +19,7 @@ flowchart LR
     subgraph gw [gateway - Spring Boot]
         direction LR
         sec[Spring Security<br/>X-API-Key or OAuth2 JWT<br/>CORS]
-        ctrl[RequestController<br/>POST /request]
-        parser[RequestParser<br/>DTO → domain]
+        ctrl[RequestController<br/>POST /request<br/>JSON ⇄ domain via Jackson]
         port{{ParcelGateway<br/>port}}
         subgraph adapter [DHL adapter]
             gwimpl[DhlGateway]
@@ -28,7 +27,7 @@ flowchart LR
             sess[DhlSession<br/>handshake]
             conn[DhlConnection<br/>correlation · retries]
         end
-        sec --> ctrl --> parser --> port --> gwimpl
+        sec --> ctrl --> port --> gwimpl
         gwimpl --> tr
         gwimpl --> sess --> conn
         gwimpl --> conn
@@ -64,31 +63,30 @@ flowchart TB
 |---------------------------|------------------------------|-----------------------------------------------------------------------|
 | [protocol](protocol)      | `dev.waylo.protocol`         | Immutable wire model, `MessageCodec` (never throws on decode), `.ksy` |
 | [dhl-mock](dhl-mock)      | `dev.waylo.mock`             | Pretend DHL: sessions, fake parcel data, simulated loss and latency   |
-| [gateway](gateway)        | `dev.waylo.gateway.api`      | HTTP DTOs, `RequestParser`, `ResponseMapper`, controller              |
-|                           | `dev.waylo.gateway.domain`   | Immutable domain model, `Parsed<T>`, `ParcelGateway` port             |
+| [gateway](gateway)        | `dev.waylo.gateway.api`      | `RequestController`                                                   |
+|                           | `dev.waylo.gateway.domain`   | Domain data classes (also the JSON format), `ParcelGateway` port      |
 |                           | `dev.waylo.gateway.dhl`      | UDP adapter: connection, session, translator                          |
-|                           | `dev.waylo.gateway.config`   | API-key security                                                      |
+|                           | `dev.waylo.gateway.config`   | Security (API key, OAuth2), CORS                                      |
 
 ### Data flow and clean separation
 
 ```mermaid
 flowchart LR
-    json["JSON"] -->|Jackson| dto["ParcelRequestDto<br/><i>loose, nullable</i>"]
-    dto -->|"RequestParser<br/>Parsed&lt;T&gt;"| domain["ParcelQuery<br/><i>valid by construction</i>"]
+    json["JSON request"] -->|Jackson| domain["ParcelQuery<br/><i>domain data class</i>"]
     domain -->|"DhlTranslator.toRequest<br/>(only in the adapter)"| wire["protocol.Request"]
     wire -->|MessageCodec.encode| bytes["datagram"]
     bytes2["datagram"] -->|MessageCodec.decode| wire2["protocol.Response"]
-    wire2 -->|"DhlTranslator.toResult<br/>Parsed&lt;T&gt;"| result["ParcelResult"]
-    result -->|ResponseMapper| out["ParcelResponseDto → JSON"]
+    wire2 -->|DhlTranslator.toResult| result["ParcelResult<br/><i>domain data class</i>"]
+    result -->|Jackson| out["JSON response"]
 ```
 
-* **Parse, don't validate.** Incoming JSON is bound to loose DTOs and then *parsed* into domain
-  types (`TrackingNumber`, `Weight`, `CountryCode`, ...) whose constructors are private. Holding a
-  domain value proves it is valid. The parser collects *every* error, so a 400 lists them all.
-  Answers from DHL are parsed the same way (`DhlTranslator.toResult`).
-* **Immutable everywhere.** HTTP DTOs, domain types and protocol messages are `data class`es /
-  value classes with `val`s only. Protocol types enforce their wire limits on construction, so
-  encoding cannot fail.
+* **JSON straight into domain objects.** Jackson deserializes the request body directly into the
+  domain `data class`es. Its type conversion is the only check (required fields, numbers, strings
+  to `Instant`, known `type`); anything that does not fit is a 400. There are no further business
+  rules in the gateway - DHL decides what it accepts.
+* **Immutable.** Domain types and protocol messages are `data class`es with `val`s only.
+  Protocol types enforce their wire limits on construction, so encoding cannot fail; a request
+  value that does not fit the wire format (e.g. a dimension above 65535) is a 400.
 * **Translate late.** Domain queries become protocol DTOs only inside the DHL adapter, right
   before they are encoded. Neither the controller nor the domain knows the protocol exists, so
   swapping the protocol later only touches `protocol` and `gateway.dhl`.
@@ -230,7 +228,7 @@ sequenceDiagram
     D-->>G: handshake_ack answer_for=1 (session 42, nonce echo)
 
     C->>+G: POST /request {track ...}
-    Note over G: parse → domain → (await session) → protocol
+    Note over G: JSON → domain → (await session) → protocol
     G->>D: request #5 session=42
     D--xG: response lost
     Note over G: timeout (500 ms)
@@ -313,25 +311,20 @@ curl -X POST localhost:8080/request -H 'X-API-Key: local-dev-key' -H 'Content-Ty
           "destination":{"country":"DE","postalCode":"10115"}}'
 ```
 ```json
-{"type":"quote","price":{"amount":"7.39","minorUnits":739,"currency":"EUR"}}
+{"type":"quote","price":{"amountCents":739,"currency":"EUR"}}
 ```
 
-| Field                         | Rule                                                      |
-|-------------------------------|-----------------------------------------------------------|
-| `trackingNumbers`             | 1-20 distinct, 8-35 letters/digits (normalised uppercase) |
-| `parcel.weightGrams`          | 1..31500                                                  |
-| `parcel.dimensionsMm.*`       | 1..1200                                                   |
-| `destination.country`         | ISO 3166-1 alpha-2                                        |
-| `destination.postalCode`      | 1-12 letters, digits, spaces, dashes                      |
-| `priority` (optional)         | sets the protocol `priority` flag (the mock skips its latency) |
+Fields: `trackingNumbers` (list of strings), `parcel.weightGrams` and `parcel.dimensionsMm.*`
+(integers), `destination.country` (ISO 3166-1 alpha-2) and `postalCode` (strings), optional
+`priority` (sets the protocol `priority` flag; the mock then skips its latency).
 
 Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details:
 
 | Status | When                                                                      |
 |--------|---------------------------------------------------------------------------|
-| 400    | malformed JSON, unknown `type`, or parse errors (`errors: [{field, message}]`) |
+| 400    | JSON that does not fit the domain objects, values the protocol cannot carry, or DHL answered `bad_request` |
 | 401    | no valid `X-API-Key` and no valid bearer token (`WWW-Authenticate: Bearer` when OAuth2 is on) |
-| 502    | DHL answered with an error or an answer that does not fit the request     |
+| 502    | DHL answered `internal_error` or something that does not fit the request  |
 | 503    | no DHL session yet (handshake pending), with `Retry-After`                |
 | 504    | no answer after 1 + `retries` attempts                                    |
 
@@ -447,8 +440,8 @@ sequenceDiagram
   to the model and compared; the CRC is recomputed. Corrupted datagrams must be rejected by both
   the `.ksy` validations and the codec.
 * **Codec** round trips, header layout, and fuzzing (random/mutated datagrams never throw).
-* **Gateway integration** against the in-process mock over real UDP: happy paths, 401, 400 with all
-  errors, 504 after exactly 3 datagrams with the same id and retransmission flags, 100 concurrent
+* **Gateway integration** against the in-process mock over real UDP: happy paths, 401, 400 for JSON
+  that does not fit, 504 after exactly 3 datagrams with the same id and retransmission flags, 100 concurrent
   requests with out-of-order answers, session renewal; requests wait for the handshake.
 * **Security**: real RS256 tokens against a local Keycloak stand-in (OIDC discovery + JWKS), so
   the production `issuer-uri` path is exercised; wrong audience, foreign issuer, expired and

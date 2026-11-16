@@ -1,9 +1,7 @@
 package dev.waylo.gateway.dhl
 
 import dev.waylo.gateway.domain.GatewayOutcome
-import dev.waylo.gateway.domain.Parsed
 import dev.waylo.gateway.domain.TrackParcels
-import dev.waylo.gateway.domain.TrackingNumber
 import dev.waylo.gateway.domain.TrackingResult
 import dev.waylo.mock.DhlMockServer
 import dev.waylo.mock.MockConfig
@@ -28,7 +26,7 @@ class DhlGatewayTest {
     private val session = DhlSession(connection, properties)
     private val gateway = DhlGateway(connection, session, properties)
 
-    private val query = (TrackParcels.of(listOf(trackingNumber("JJD000390007")), priority = false) as Parsed.Valid).value
+    private val query = TrackParcels(listOf("JJD000390007"))
 
     @AfterTest
     fun tearDown() {
@@ -61,6 +59,4 @@ class DhlGatewayTest {
 
         assertIs<GatewayOutcome.Unavailable>(impatient.execute(query))
     }
-
-    private fun trackingNumber(raw: String) = (TrackingNumber.parse(raw) as Parsed.Valid).value
 }

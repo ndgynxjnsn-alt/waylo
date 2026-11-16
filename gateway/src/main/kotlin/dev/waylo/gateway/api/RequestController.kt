@@ -2,7 +2,7 @@ package dev.waylo.gateway.api
 
 import dev.waylo.gateway.domain.GatewayOutcome
 import dev.waylo.gateway.domain.ParcelGateway
-import dev.waylo.gateway.domain.Parsed
+import dev.waylo.gateway.domain.ParcelQuery
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
@@ -11,19 +11,18 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 
+/**
+ * JSON that does not match [ParcelQuery] (missing fields, wrong types, unknown "type") is
+ * rejected by Spring with 400 before this method runs.
+ */
 @RestController
 class RequestController(private val gateway: ParcelGateway) {
 
     @PostMapping("/request")
-    fun request(@RequestBody body: ParcelRequestDto): ResponseEntity<Any> {
-        val query = when (val parsed = RequestParser.parse(body)) {
-            is Parsed.Valid -> parsed.value
-            is Parsed.Invalid -> return problem(HttpStatus.BAD_REQUEST, "Invalid request") {
-                setProperty("errors", parsed.errors)
-            }
-        }
-        return when (val outcome = gateway.execute(query)) {
-            is GatewayOutcome.Success -> ResponseEntity.ok(ResponseMapper.toDto(outcome.result))
+    fun request(@RequestBody query: ParcelQuery): ResponseEntity<Any> =
+        when (val outcome = gateway.execute(query)) {
+            is GatewayOutcome.Success -> ResponseEntity.ok(outcome.result)
+            is GatewayOutcome.Rejected -> problem(HttpStatus.BAD_REQUEST, outcome.reason)
             is GatewayOutcome.Timeout -> problem(
                 HttpStatus.GATEWAY_TIMEOUT,
                 "DHL did not answer within ${outcome.perAttempt.toMillis()} ms in ${outcome.attempts} attempts",
@@ -31,16 +30,10 @@ class RequestController(private val gateway: ParcelGateway) {
             is GatewayOutcome.Unavailable -> problem(HttpStatus.SERVICE_UNAVAILABLE, outcome.reason, retryAfterSeconds = 5)
             is GatewayOutcome.Failed -> problem(HttpStatus.BAD_GATEWAY, outcome.reason)
         }
-    }
 
-    private fun problem(
-        status: HttpStatus,
-        detail: String,
-        retryAfterSeconds: Int? = null,
-        customize: ProblemDetail.() -> Unit = {},
-    ): ResponseEntity<Any> {
-        val builder = ResponseEntity.status(status)
-        retryAfterSeconds?.let { builder.header(HttpHeaders.RETRY_AFTER, it.toString()) }
-        return builder.body(ProblemDetail.forStatusAndDetail(status, detail).apply(customize))
+    private fun problem(status: HttpStatus, detail: String, retryAfterSeconds: Int? = null): ResponseEntity<Any> {
+        val response = ResponseEntity.status(status)
+        if (retryAfterSeconds != null) response.header(HttpHeaders.RETRY_AFTER, retryAfterSeconds.toString())
+        return response.body(ProblemDetail.forStatusAndDetail(status, detail))
     }
 }

@@ -16,6 +16,9 @@ sealed interface GatewayOutcome {
     /** The carrier session is not (yet) established, e.g. handshake still pending. */
     data class Unavailable(val reason: String) : GatewayOutcome
 
+    /** The request cannot be served as asked: DHL rejected it, or it does not fit the protocol. */
+    data class Rejected(val reason: String) : GatewayOutcome
+
     /** The carrier answered, but with an error or with something we cannot make sense of. */
     data class Failed(val reason: String) : GatewayOutcome
 }

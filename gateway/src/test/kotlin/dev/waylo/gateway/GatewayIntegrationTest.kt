@@ -37,7 +37,7 @@ class GatewayIntegrationTest {
 
     @Test
     fun `tracks parcels through the DHL mock`() {
-        val response = post("""{"type":"track","trackingNumbers":["jjd000390007","UNKNOWN0001"]}""")
+        val response = post("""{"type":"track","trackingNumbers":["JJD000390007","UNKNOWN0001"]}""")
 
         assertEquals(200, response.statusCode(), response.body())
         assertEquals("tracking", json(response, "$.type"))
@@ -51,12 +51,12 @@ class GatewayIntegrationTest {
     fun `quotes a shipment`() {
         val response = post(
             """{"type":"quote","parcel":{"weightGrams":1200,"dimensionsMm":{"length":300,"width":200,"height":100}},
-               "destination":{"country":"fr","postalCode":"75001"}}""",
+               "destination":{"country":"FR","postalCode":"75001"}}""",
         )
 
         assertEquals(200, response.statusCode(), response.body())
         assertEquals("quote", json(response, "$.type"))
-        assertEquals("15.39", json(response, "$.price.amount")) // 12.99 EU + 2 kg * 1.20
+        assertEquals(1539, json(response, "$.price.amountCents")) // 12.99 EU + 2 kg * 1.20
         assertEquals("EUR", json(response, "$.price.currency"))
     }
 
@@ -68,29 +68,30 @@ class GatewayIntegrationTest {
     }
 
     @Test
-    fun `reports every parse error at once`() {
-        val response = post(
-            """{"type":"quote","parcel":{"weightGrams":0,"dimensionsMm":{"length":300,"height":5000}},
-               "destination":{"country":"XX"}}""",
+    fun `rejects JSON that does not match the domain objects`() {
+        val cases = listOf(
+            """{"type":"track","trackingNumbers":""",                                    // malformed JSON
+            """{"type":"teleport"}""",                                                  // unknown type
+            """{"type":"track"}""",                                                     // missing field
+            """{"type":"track","trackingNumbers":["JJD000390007",null]}""",             // null element
+            """{"type":"quote","parcel":{"weightGrams":"heavy","dimensionsMm":{"length":1,"width":1,"height":1}},
+               "destination":{"country":"DE","postalCode":"1"}}""",                       // wrong type
         )
-
-        assertEquals(400, response.statusCode())
-        val fields = json<List<String>>(response, "$.errors[*].field")
-        assertEquals(
-            listOf(
-                "parcel.weightGrams", "parcel.dimensionsMm.width", "parcel.dimensionsMm.height",
-                "destination.country", "destination.postalCode",
-            ),
-            fields,
-        )
+        cases.forEach { assertEquals(400, post(it).statusCode(), it) }
         assertTrue(mock.received.none { it.body is Request }, "invalid requests must not reach DHL")
     }
 
     @Test
-    fun `rejects malformed JSON and unknown request types`() {
-        assertEquals(400, post("""{"type":"track","trackingNumbers":""").statusCode())
-        assertEquals(400, post("""{"type":"teleport"}""").statusCode())
-        assertEquals(400, post("""{"type":"track","trackingNumbers":["JJD000390007","jjd000390007"]}""").statusCode())
+    fun `rejects values the protocol cannot carry and requests DHL refuses`() {
+        val tooLong = post(
+            """{"type":"quote","parcel":{"weightGrams":1000,"dimensionsMm":{"length":70000,"width":1,"height":1}},
+               "destination":{"country":"DE","postalCode":"1"}}""",
+        )
+        assertEquals(400, tooLong.statusCode(), tooLong.body())
+        assertEquals("request cannot be sent to DHL: length must be 0..65535", json(tooLong, "$.detail"))
+
+        val empty = post("""{"type":"track","trackingNumbers":[]}""") // DHL answers bad_request
+        assertEquals(400, empty.statusCode(), empty.body())
     }
 
     @Test

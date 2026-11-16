@@ -30,7 +30,7 @@ export default function () {
       destination: { country: countries[Math.floor(Math.random() * countries.length)], postalCode: '10115' },
     };
   } else {
-    body = { type: 'track', trackingNumbers: ['nope'] }; // 400
+    body = { type: 'track' }; // missing field -> 400
   }
   http.post(url, JSON.stringify(body), params);
   sleep(0.1);
