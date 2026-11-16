@@ -94,18 +94,18 @@ class SecurityIntegrationTest {
     }
 
     private fun post(apiKey: String? = null, bearer: String? = null, headers: Map<String, String> = emptyMap()): HttpResponse<String> {
-        val request = HttpRequest.newBuilder(URI("http://localhost:$port/request"))
+        val request = HttpRequest.newBuilder(URI("http://localhost:$port/request/track"))
             .header("Content-Type", "application/json")
             .apply { apiKey?.let { header("X-API-Key", it) } }
             .apply { bearer?.let { header("Authorization", "Bearer $it") } }
             .apply { headers.forEach { (k, v) -> header(k, v) } }
-            .POST(HttpRequest.BodyPublishers.ofString("""{"type":"track","trackingNumbers":["JJD000390007"]}"""))
+            .POST(HttpRequest.BodyPublishers.ofString("""{"trackingNumbers":["JJD000390007"]}"""))
             .build()
         return http.send(request, HttpResponse.BodyHandlers.ofString())
     }
 
     private fun preflight(origin: String, requestHeaders: String): HttpResponse<String> {
-        val request = HttpRequest.newBuilder(URI("http://localhost:$port/request"))
+        val request = HttpRequest.newBuilder(URI("http://localhost:$port/request/track"))
             .header("Origin", origin)
             .header("Access-Control-Request-Method", "POST")
             .header("Access-Control-Request-Headers", requestHeaders)

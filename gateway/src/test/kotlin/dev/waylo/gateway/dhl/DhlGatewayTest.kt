@@ -26,7 +26,7 @@ class DhlGatewayTest {
     private val session = DhlSession(connection, properties)
     private val gateway = DhlGateway(connection, session, properties)
 
-    private val query = TrackParcels(listOf("JJD000390007"))
+    private val query = TrackParcels(listOf("JJD000390007"), priority = false)
 
     @AfterTest
     fun tearDown() {

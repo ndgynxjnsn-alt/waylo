@@ -16,7 +16,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "HTTP API  (POST /request)",
+      "title": "HTTP API  (POST /request/*)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -46,8 +46,8 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_count{service_name=\"waylo-gateway\", http_route=\"/request\"}[$__rate_interval]))",
-          "legendFormat": "{{http_response_status_code}}",
+          "expr": "sum by (http_route, http_response_status_code) (rate(http_server_request_duration_count{service_name=\"waylo-gateway\", http_route=~\"/request/.*\"}[$__rate_interval]))",
+          "legendFormat": "{{http_route}} {{http_response_status_code}}",
           "exemplar": false,
           "refId": "A"
         }
@@ -85,7 +85,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_bucket{service_name=\"waylo-gateway\", http_route=\"/request\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_bucket{service_name=\"waylo-gateway\", http_route=~\"/request/.*\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "exemplar": true,
           "refId": "A"
@@ -95,7 +95,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_bucket{service_name=\"waylo-gateway\", http_route=\"/request\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_bucket{service_name=\"waylo-gateway\", http_route=~\"/request/.*\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "exemplar": true,
           "refId": "B"
@@ -105,7 +105,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_bucket{service_name=\"waylo-gateway\", http_route=\"/request\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_bucket{service_name=\"waylo-gateway\", http_route=~\"/request/.*\"}[$__rate_interval])))",
           "legendFormat": "p99",
           "exemplar": true,
           "refId": "C"

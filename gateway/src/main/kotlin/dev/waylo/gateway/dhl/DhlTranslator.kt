@@ -40,9 +40,9 @@ object DhlTranslator {
             listOf(
                 Record.Weight(u32(query.parcel.weightGrams, "weightGrams")),
                 Record.Dimensions(
-                    u16(query.parcel.dimensionsMm.length, "length"),
-                    u16(query.parcel.dimensionsMm.width, "width"),
-                    u16(query.parcel.dimensionsMm.height, "height"),
+                    u16(query.parcel.dimensions.lengthMm, "length"),
+                    u16(query.parcel.dimensions.widthMm, "width"),
+                    u16(query.parcel.dimensions.heightMm, "height"),
                 ),
                 Record.Destination(query.destination.country, query.destination.postalCode),
             ),

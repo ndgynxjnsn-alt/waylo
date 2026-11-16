@@ -27,7 +27,7 @@ data class CorsProperties(
     fun toSource(): CorsConfigurationSource = UrlBasedCorsConfigurationSource().apply {
         if (allowedOrigins.isEmpty()) return@apply
         registerCorsConfiguration(
-            "/request",
+            "/request/**",
             CorsConfiguration().also {
                 it.allowedOriginPatterns = allowedOrigins
                 it.allowedMethods = allowedMethods

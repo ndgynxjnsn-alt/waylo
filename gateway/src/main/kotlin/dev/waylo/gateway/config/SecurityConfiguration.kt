@@ -37,7 +37,7 @@ data class ApiKeyProperties(val apiKeys: List<String>) {
 class SecurityConfiguration {
 
     /**
-     * Two ways to authenticate against `POST /request`:
+     * Two ways to authenticate against the `POST /request/...` endpoints:
      *  * `X-API-Key` - for machine clients,
      *  * `Authorization: Bearer <JWT>` (OAuth2, e.g. Keycloak) - for the frontend. Only active when a
      *    JWT decoder is configured (`spring.security.oauth2.resourceserver.jwt.*`); issuer, signature,
@@ -63,7 +63,7 @@ class SecurityConfiguration {
             authorizeHttpRequests {
                 authorize("/actuator/health/**", permitAll)
                 authorize("/actuator/info", permitAll)
-                authorize(HttpMethod.POST, "/request", authenticated) // API key or JWT
+                authorize(HttpMethod.POST, "/request/**", authenticated) // API key or JWT
                 authorize("/error", permitAll)
                 authorize(anyRequest, denyAll)
             }

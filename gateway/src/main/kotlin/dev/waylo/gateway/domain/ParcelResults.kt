@@ -1,23 +1,16 @@
 package dev.waylo.gateway.domain
 
-import com.fasterxml.jackson.annotation.JsonSubTypes
-import com.fasterxml.jackson.annotation.JsonTypeInfo
 import java.time.Instant
 
-/* What the carrier answered. Serialized by Jackson directly as the JSON response body. */
+/* What the carrier answered. */
 
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
-@JsonSubTypes(
-    JsonSubTypes.Type(value = TrackingResult::class, name = "tracking"),
-    JsonSubTypes.Type(value = QuoteResult::class, name = "quote"),
-)
 sealed interface ParcelResult
 
 data class TrackingResult(val parcels: List<ParcelTracking>) : ParcelResult
 
 data class ParcelTracking(val trackingNumber: String, val events: List<TrackingEvent>) {
-    /** Status of the latest event; null for unknown parcels. Also part of the JSON. */
-    val status: ShipmentStatus?
+    /** Status of the latest event; null for unknown parcels. */
+    val currentStatus: ShipmentStatus?
         get() = events.maxByOrNull { it.timestamp }?.status
 }
 

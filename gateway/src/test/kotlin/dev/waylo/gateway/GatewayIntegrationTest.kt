@@ -37,10 +37,9 @@ class GatewayIntegrationTest {
 
     @Test
     fun `tracks parcels through the DHL mock`() {
-        val response = post("""{"type":"track","trackingNumbers":["JJD000390007","UNKNOWN0001"]}""")
+        val response = post(TRACK, """{"trackingNumbers":["JJD000390007","UNKNOWN0001"]}""")
 
         assertEquals(200, response.statusCode(), response.body())
-        assertEquals("tracking", json(response, "$.type"))
         assertEquals("JJD000390007", json(response, "$.parcels[0].trackingNumber"))
         assertTrue(json<List<Any>>(response, "$.parcels[0].events").isNotEmpty())
         assertEquals("UNKNOWN0001", json(response, "$.parcels[1].trackingNumber"))
@@ -50,47 +49,47 @@ class GatewayIntegrationTest {
     @Test
     fun `quotes a shipment`() {
         val response = post(
-            """{"type":"quote","parcel":{"weightGrams":1200,"dimensionsMm":{"length":300,"width":200,"height":100}},
+            QUOTE,
+            """{"parcel":{"weightGrams":1200,"dimensionsMm":{"length":300,"width":200,"height":100}},
                "destination":{"country":"FR","postalCode":"75001"}}""",
         )
 
         assertEquals(200, response.statusCode(), response.body())
-        assertEquals("quote", json(response, "$.type"))
         assertEquals(1539, json(response, "$.price.amountCents")) // 12.99 EU + 2 kg * 1.20
         assertEquals("EUR", json(response, "$.price.currency"))
     }
 
     @Test
     fun `rejects requests without a valid API key`() {
-        assertEquals(401, post("""{"type":"track","trackingNumbers":["JJD000390007"]}""", apiKey = null).statusCode())
-        assertEquals(401, post("""{"type":"track","trackingNumbers":["JJD000390007"]}""", apiKey = "nope").statusCode())
+        assertEquals(401, post(TRACK, """{"trackingNumbers":["JJD000390007"]}""", apiKey = null).statusCode())
+        assertEquals(401, post(TRACK, """{"trackingNumbers":["JJD000390007"]}""", apiKey = "nope").statusCode())
         assertTrue(mock.received.none { it.body is Request }, "nothing must reach DHL")
     }
 
     @Test
     fun `rejects JSON that does not match the domain objects`() {
         val cases = listOf(
-            """{"type":"track","trackingNumbers":""",                                    // malformed JSON
-            """{"type":"teleport"}""",                                                  // unknown type
-            """{"type":"track"}""",                                                     // missing field
-            """{"type":"track","trackingNumbers":["JJD000390007",null]}""",             // null element
-            """{"type":"quote","parcel":{"weightGrams":"heavy","dimensionsMm":{"length":1,"width":1,"height":1}},
-               "destination":{"country":"DE","postalCode":"1"}}""",                       // wrong type
+            TRACK to """{"trackingNumbers":""",                                         // malformed JSON
+            TRACK to """{}""",                                                          // missing field
+            TRACK to """{"trackingNumbers":["JJD000390007",null]}""",                  // null element
+            QUOTE to """{"parcel":{"weightGrams":"heavy","dimensionsMm":{"length":1,"width":1,"height":1}},
+               "destination":{"country":"DE","postalCode":"1"}}""",                      // wrong type
         )
-        cases.forEach { assertEquals(400, post(it).statusCode(), it) }
+        cases.forEach { (path, body) -> assertEquals(400, post(path, body).statusCode(), body) }
         assertTrue(mock.received.none { it.body is Request }, "invalid requests must not reach DHL")
     }
 
     @Test
     fun `rejects values the protocol cannot carry and requests DHL refuses`() {
         val tooLong = post(
-            """{"type":"quote","parcel":{"weightGrams":1000,"dimensionsMm":{"length":70000,"width":1,"height":1}},
+            QUOTE,
+            """{"parcel":{"weightGrams":1000,"dimensionsMm":{"length":70000,"width":1,"height":1}},
                "destination":{"country":"DE","postalCode":"1"}}""",
         )
         assertEquals(400, tooLong.statusCode(), tooLong.body())
         assertEquals("request cannot be sent to DHL: length must be 0..65535", json(tooLong, "$.detail"))
 
-        val empty = post("""{"type":"track","trackingNumbers":[]}""") // DHL answers bad_request
+        val empty = post(TRACK, """{"trackingNumbers":[]}""") // DHL answers bad_request
         assertEquals(400, empty.statusCode(), empty.body())
     }
 
@@ -98,7 +97,7 @@ class GatewayIntegrationTest {
     fun `answers 504 after the configured retries when DHL stays silent`() {
         mock.config = MockConfig(port = 0, lossRate = 1.0)
 
-        val response = post("""{"type":"track","trackingNumbers":["JJD000390007"]}""")
+        val response = post(TRACK, """{"trackingNumbers":["JJD000390007"]}""")
 
         assertEquals(504, response.statusCode())
         val attempts = mock.received.filter { it.body is Request }
@@ -113,7 +112,7 @@ class GatewayIntegrationTest {
         val numbers = (1..100).map { "JJD%09d".format(it) }
 
         val responses = Executors.newVirtualThreadPerTaskExecutor().use { pool ->
-            numbers.map { n -> pool.submit<HttpResponse<String>> { post("""{"type":"track","trackingNumbers":["$n"]}""") } }
+            numbers.map { n -> pool.submit<HttpResponse<String>> { post(TRACK, """{"trackingNumbers":["$n"]}""") } }
                 .map { it.get() }
         }
 
@@ -127,10 +126,15 @@ class GatewayIntegrationTest {
     fun `re-establishes the session when DHL forgets it`() {
         mock.invalidateSessions()
 
-        val response = post("""{"type":"track","trackingNumbers":["JJD000390007"]}""")
+        val response = post(TRACK, """{"trackingNumbers":["JJD000390007"]}""")
 
         assertEquals(200, response.statusCode(), response.body())
         assertTrue(mock.received.any { it.body is Handshake }, "a new handshake took place")
+    }
+
+    @Test
+    fun `unknown endpoints are 404`() {
+        assertEquals(404, post("/request/teleport", """{}""").statusCode())
     }
 
     @Test
@@ -139,8 +143,8 @@ class GatewayIntegrationTest {
         assertEquals(200, http.send(request, HttpResponse.BodyHandlers.ofString()).statusCode())
     }
 
-    private fun post(body: String, apiKey: String? = API_KEY): HttpResponse<String> {
-        val request = HttpRequest.newBuilder(URI("http://localhost:$port/request"))
+    private fun post(path: String, body: String, apiKey: String? = API_KEY): HttpResponse<String> {
+        val request = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
             .header("Content-Type", "application/json")
             .apply { apiKey?.let { header("X-API-Key", it) } }
             .POST(HttpRequest.BodyPublishers.ofString(body))
@@ -152,6 +156,8 @@ class GatewayIntegrationTest {
 
     companion object {
         private const val API_KEY = "test-key"
+        private const val TRACK = "/request/track"
+        private const val QUOTE = "/request/quote"
         private val mock = DhlMockServer(MockConfig(port = 0)).start()
 
         @JvmStatic

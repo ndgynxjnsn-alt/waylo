@@ -1,6 +1,6 @@
 # Waylo
 
-Waylo is a demo **HTTP → UDP gateway**. It offers a REST endpoint (`POST /request`), translates
+Waylo is a demo **HTTP → UDP gateway**. It offers REST endpoints (`POST /request/track`, `POST /request/quote`), translates
 each request into a binary datagram, sends it over UDP to an external carrier gateway ("DHL") and
 answers the HTTP request once the matching UDP answer comes back.
 
@@ -19,7 +19,7 @@ flowchart LR
     subgraph gw [gateway - Spring Boot]
         direction LR
         sec[Spring Security<br/>X-API-Key or OAuth2 JWT<br/>CORS]
-        ctrl[RequestController<br/>POST /request<br/>JSON ⇄ domain via Jackson]
+        ctrl[RequestController<br/>POST /request/track · /quote<br/>HTTP DTOs ⇄ domain]
         port{{ParcelGateway<br/>port}}
         subgraph adapter [DHL adapter]
             gwimpl[DhlGateway]
@@ -63,8 +63,8 @@ flowchart TB
 |---------------------------|------------------------------|-----------------------------------------------------------------------|
 | [protocol](protocol)      | `dev.waylo.protocol`         | Immutable wire model, `MessageCodec` (never throws on decode), `.ksy` |
 | [dhl-mock](dhl-mock)      | `dev.waylo.mock`             | Pretend DHL: sessions, fake parcel data, simulated loss and latency   |
-| [gateway](gateway)        | `dev.waylo.gateway.api`      | `RequestController`                                                   |
-|                           | `dev.waylo.gateway.domain`   | Domain data classes (also the JSON format), `ParcelGateway` port      |
+| [gateway](gateway)        | `dev.waylo.gateway.api`      | `RequestController`, HTTP DTOs (JSON shapes) with domain mapping      |
+|                           | `dev.waylo.gateway.domain`   | Domain data classes, `ParcelGateway` port                             |
 |                           | `dev.waylo.gateway.dhl`      | UDP adapter: connection, session, translator                          |
 |                           | `dev.waylo.gateway.config`   | Security (API key, OAuth2), CORS                                      |
 
@@ -72,17 +72,20 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    json["JSON request"] -->|Jackson| domain["ParcelQuery<br/><i>domain data class</i>"]
+    json["JSON request"] -->|Jackson| dto["TrackRequest / QuoteRequest<br/><i>HTTP DTO</i>"]
+    dto -->|toDomain| domain["ParcelQuery<br/><i>domain data class</i>"]
     domain -->|"DhlTranslator.toRequest<br/>(only in the adapter)"| wire["protocol.Request"]
     wire -->|MessageCodec.encode| bytes["datagram"]
     bytes2["datagram"] -->|MessageCodec.decode| wire2["protocol.Response"]
     wire2 -->|DhlTranslator.toResult| result["ParcelResult<br/><i>domain data class</i>"]
-    result -->|Jackson| out["JSON response"]
+    result -->|"TrackResponse.from / QuoteResponse.from"| outdto["HTTP DTO"]
+    outdto -->|Jackson| out["JSON response"]
 ```
 
-* **JSON straight into domain objects.** Jackson deserializes the request body directly into the
-  domain `data class`es. Its type conversion is the only check (required fields, numbers, strings
-  to `Instant`, known `type`); anything that does not fit is a 400. There are no further business
+* **HTTP DTOs, then domain objects.** Jackson reads the body into a request DTO, which describes
+  the JSON shape and maps itself to the domain (`toDomain()`); responses go the other way. Jackson's
+  type conversion is the only check (required fields, numbers, strings to `Instant`); anything that
+  does not fit is a 400. There are no further business
   rules in the gateway - DHL decides what it accepts.
 * **Immutable.** Domain types and protocol messages are `data class`es with `val`s only.
   Protocol types enforce their wire limits on construction, so encoding cannot fail; a request
@@ -227,7 +230,7 @@ sequenceDiagram
     G->>D: handshake #1 (client name, nonce)
     D-->>G: handshake_ack answer_for=1 (session 42, nonce echo)
 
-    C->>+G: POST /request {track ...}
+    C->>+G: POST /request/track
     Note over G: JSON → domain → (await session) → protocol
     G->>D: request #5 session=42
     D--xG: response lost
@@ -236,7 +239,7 @@ sequenceDiagram
     D-->>G: response answer_for=5
     G-->>-C: 200 {tracking ...}
 
-    C->>+G: POST /request
+    C->>+G: POST /request/quote
     G->>D: request #6
     G->>D: request #6 [retransmission]
     G->>D: request #6 [retransmission]
@@ -265,7 +268,7 @@ stateDiagram-v2
 
 ## HTTP API
 
-`POST /request`, authenticated by **either** header (the body's `type` selects the operation):
+One endpoint per query, `POST /request/track` and `POST /request/quote`, authenticated by **either** header:
 
 | Client              | Header                          | Validation                                              |
 |---------------------|---------------------------------|---------------------------------------------------------|
@@ -286,34 +289,35 @@ sequenceDiagram
     participant G as Waylo gateway
     B->>K: Authorization Code + PKCE
     K-->>B: access token (aud: waylo-api)
-    B->>G: OPTIONS /request (Origin, Access-Control-Request-Headers: authorization, traceparent)
+    B->>G: OPTIONS /request/track (Origin, Access-Control-Request-Headers: authorization, traceparent)
     G-->>B: 200 Access-Control-Allow-Origin / -Headers
-    B->>G: POST /request  Authorization: Bearer … · traceparent: 00-…
+    B->>G: POST /request/track  Authorization: Bearer … · traceparent: 00-…
     G->>K: JWKS (cached)
     G-->>B: 200 (span joins the browser's trace)
 ```
 
 
 ```bash
-curl -X POST localhost:8080/request -H 'X-API-Key: local-dev-key' -H 'Content-Type: application/json' \
-     -d '{"type":"track","trackingNumbers":["JJD000390007"]}'
+curl -X POST localhost:8080/request/track -H 'X-API-Key: local-dev-key' -H 'Content-Type: application/json' \
+     -d '{"trackingNumbers":["JJD000390007"]}'
 ```
 ```json
-{"type":"tracking","parcels":[{"trackingNumber":"JJD000390007","status":"PICKED_UP","events":[
+{"parcels":[{"trackingNumber":"JJD000390007","status":"PICKED_UP","events":[
   {"timestamp":"2026-11-13T22:54:05.591Z","status":"LABEL_CREATED","location":"Nürnberg-Feucht"},
   {"timestamp":"2026-11-14T04:54:05.591Z","status":"PICKED_UP","location":"München-Aschheim"}]}]}
 ```
 
 ```bash
-curl -X POST localhost:8080/request -H 'X-API-Key: local-dev-key' -H 'Content-Type: application/json' \
-     -d '{"type":"quote","priority":true,
+curl -X POST localhost:8080/request/quote -H 'X-API-Key: local-dev-key' -H 'Content-Type: application/json' \
+     -d '{"priority":true,
           "parcel":{"weightGrams":1200,"dimensionsMm":{"length":300,"width":200,"height":100}},
           "destination":{"country":"DE","postalCode":"10115"}}'
 ```
 ```json
-{"type":"quote","price":{"amountCents":739,"currency":"EUR"}}
+{"price":{"amountCents":739,"currency":"EUR"}}
 ```
 
+The JSON shapes are the DTOs in [`HttpDtos.kt`](gateway/src/main/kotlin/dev/waylo/gateway/api/HttpDtos.kt).
 Fields: `trackingNumbers` (list of strings), `parcel.weightGrams` and `parcel.dimensionsMm.*`
 (integers), `destination.country` (ISO 3166-1 alpha-2) and `postalCode` (strings), optional
 `priority` (sets the protocol `priority` flag; the mock then skips its latency).
@@ -417,8 +421,8 @@ sequenceDiagram
     participant C as client
     participant G as waylo-gateway
     participant D as DHL
-    Note over G: span POST /request (SERVER)
-    C->>G: POST /request
+    Note over G: span POST /request/track (SERVER)
+    C->>G: POST /request/track
     Note over G: span DHL track (CLIENT, peer.service=dhl)
     G->>D: request #7
     G->>D: request #7 (event: retransmission)

@@ -8,7 +8,7 @@ spring:
     problemdetails:
       enabled: true
   # ---- OAuth2 / Keycloak (frontend) -------------------------------------------------------
-  # Enables "Authorization: Bearer <JWT>" on POST /request in addition to X-API-Key.
+  # Enables "Authorization: Bearer <JWT>" on POST /request/* in addition to X-API-Key.
   # Spring validates signature (keys from the issuer's JWKS), issuer, expiry and audience.
   # security:
   #   oauth2:

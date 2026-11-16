@@ -1,7 +1,7 @@
 # Waylo gateway + DHL mock.
 #   docker compose up -d --build
-#   curl -X POST localhost:8080/request -H 'X-API-Key: local-dev-key' -H 'Content-Type: application/json' \
-#        -d '{"type":"track","trackingNumbers":["JJD000390007"]}'
+#   curl -X POST localhost:8080/request/track -H 'X-API-Key: local-dev-key' -H 'Content-Type: application/json' \
+#        -d '{"trackingNumbers":["JJD000390007"]}'
 services:
   dhl-mock:
     build: { context: ., target: dhl-mock }
