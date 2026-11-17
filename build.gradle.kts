@@ -36,3 +36,15 @@ subprojects {
         }
     }
 }
+
+// Used by offline/pack.sh: downloads every dependency any task of any project could need,
+// including configurations a plain `build` never resolves.
+allprojects {
+    tasks.register("resolveAllDependencies") {
+        description = "Resolves every resolvable configuration (for the offline bundle)."
+        group = "help"
+        notCompatibleWithConfigurationCache("resolves configurations at execution time")
+        val resolvable = configurations.matching { it.isCanBeResolved }
+        doLast { resolvable.forEach { it.resolve() } }
+    }
+}
