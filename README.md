@@ -369,17 +369,48 @@ or locally:
 
 ## Offline build
 
-The project can be built on a machine without internet access. On an internet-connected
-Linux x64 PC:
+The project can be built on a machine without internet access, either from a bundled Gradle cache
+or from the company Nexus, which this project fills with whatever it is missing.
 
-```bash
-offline/pack.sh        # -> dist/waylo-offline-bundle.tar.gz (sources + Gradle + all dependencies)
+```mermaid
+flowchart LR
+    subgraph online [Internet PC]
+        pack["offline/pack.sh"]
+    end
+    subgraph offline [Offline PC]
+        bundle[("waylo-offline-bundle.tar.gz<br/>sources · Gradle zip · Gradle cache")]
+        local["build-offline.sh<br/>(bundled cache)"]
+        upload["nexus-upload.sh"]
+        viaNexus["build-with-nexus.sh<br/>(only Nexus)"]
+    end
+    subgraph nexus [Company Nexus]
+        raw[(raw-hosted<br/>Gradle zip)]
+        hosted[(maven-releases)]
+        group[(maven-public<br/>group)]
+    end
+    pack -- transfer --> bundle
+    bundle --> local
+    bundle --> upload
+    upload -- "HEAD: available?" --> group
+    upload -- "PUT if missing" --> hosted
+    upload -- "PUT if missing" --> raw
+    hosted --> group
+    group -- "plugins + dependencies" --> viaNexus
+    raw -- Gradle --> viaNexus
 ```
 
-It builds once with a project-local Gradle home (`.offline/gradle-home`) so that this folder ends
-up with the wrapper's Gradle distribution and every dependency and plugin (Kotlin, Spring Boot,
-Kaitai compiler, ...), then packs it together with the sources. On the offline machine (JDK 25+
-required):
+**1. Internet PC** (Ubuntu x64):
+
+```bash
+offline/pack.sh        # -> dist/waylo-offline-bundle.tar.gz
+```
+
+It downloads the Gradle distribution named in `gradle-wrapper.properties` (checked against the
+official `.sha256`; reused if already there), builds once with a project-local Gradle home
+(`.offline/gradle-home`) so that this folder ends up with every dependency and plugin, and packs
+both together with the sources.
+
+**2a. Offline PC, build from the bundle** (JDK 25+ required):
 
 ```bash
 tar -xzf waylo-offline-bundle.tar.gz
@@ -387,10 +418,50 @@ waylo/offline/build-offline.sh                     # ./gradlew --offline build
 waylo/offline/build-offline.sh :gateway:bootJar    # or any other tasks
 ```
 
+**2b. Offline PC, fill the company Nexus** (needs `curl`):
+
+```bash
+export NEXUS_URL=https://nexus.example.com NEXUS_USER=me NEXUS_PASSWORD=secret
+waylo/offline/nexus-upload.sh                # DRY_RUN=1 only reports what is missing
+waylo/offline/build-with-nexus.sh            # proof: builds with everything from Nexus
+```
+
+`nexus-upload.sh` checks every file of the bundled cache (582 files: `.jar`, `.pom`, `.module`)
+in the Maven **group** - where builds resolve from - and uploads only what the group cannot serve
+into a Maven **hosted** repository. It also uploads the Gradle zip (+ `.sha256`) into a **raw**
+repository under `gradle/distributions/`. The files Nexus mirrors tend to lack are all included:
+
+* **pom-only artifacts:** BOMs (`spring-boot-dependencies`, `junit-bom`, ...) and parent POMs,
+* **Gradle Module Metadata** (`.module`), which Kotlin and Spring use to pick variants (e.g. the
+  Kotlin Gradle plugin jar built for the running Gradle version),
+* **Gradle plugin markers** (`org.jetbrains.kotlin.jvm.gradle.plugin`,
+  `org.springframework.boot.gradle.plugin`, ...): pom-only artifacts normally served by the Gradle
+  Plugin Portal that map a `plugins { id(...) }` to the real plugin jar.
+
+| Variable        | Default          | Must be                                                        |
+|-----------------|------------------|----------------------------------------------------------------|
+| `GROUP_REPO`    | `maven-public`   | Maven group the builds use                                     |
+| `HOSTED_REPO`   | `maven-releases` | Maven 2 **hosted** repository that is a **member of** `GROUP_REPO` (a raw repository cannot be part of a Maven group) |
+| `RAW_REPO`      | `raw-hosted`     | raw hosted repository; Nexus has none by default, create it once |
+
+`build-with-nexus.sh` starts from an empty Gradle home, takes Gradle from `RAW_REPO` and resolves
+plugins and dependencies only from `GROUP_REPO` through the init script
+[`nexus.init.gradle.kts`](offline/nexus.init.gradle.kts). Other machines can do the same; to use
+the wrapper instead, point `distributionUrl` in `gradle-wrapper.properties` to the raw URL the
+upload script prints (credentials: `systemProp.gradle.wrapperUser` / `wrapperPassword` in
+`~/.gradle/gradle.properties`).
+
+**Test:** [`offline/test-nexus.sh`](offline/test-nexus.sh) runs all of this against a throwaway
+Nexus in Docker on a network **without internet**: basic auth only, a deploy user, a few files
+pre-seeded. It checks that a wrong password is refused, that a second upload run uploads nothing,
+and that a fresh container builds and tests the project with Gradle, plugins and dependencies
+coming only from Nexus. It uses Nexus 3.76.1, the last release without a click-through EULA; newer
+Community Edition images refuse all requests until you accept their EULA
+(`NEXUS_IMAGE=sonatype/nexus3:3.98.2 ACCEPT_NEXUS_EULA=yes offline/test-nexus.sh`).
+
 [`offline/dependencies.txt`](offline/dependencies.txt) is the flat list of all modules
 (`group:artifact:version`, regenerated by `pack.sh`). `offline/fetch-dependencies.sh` requests
-each of them from a Maven repository (`REPO_URL`, default Maven Central), e.g. to check or warm
-an internal mirror.
+each of them from a Maven repository (`REPO_URL`, default Maven Central).
 
 The Docker images are not part of the offline bundle: their build downloads base images and the
 OpenTelemetry/Pyroscope agents.
